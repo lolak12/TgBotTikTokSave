@@ -1,9 +1,9 @@
 ﻿// See https://aka.ms/new-console-template for more information
-
 using Telegram.Bot;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
+using Telegram.Bot.Types.InputFiles;
 using System;
 using System.Net.Http;
 using System.Text.RegularExpressions;
@@ -28,10 +28,12 @@ namespace tiktoktg
                 AllowedUpdates = Array.Empty<UpdateType>() // Получать все обновления
             };
 
+            // Создаем объект, реализующий IUpdateHandler
+            var handler = new UpdateHandler();
+
             // Запуск бота в режиме получения обновлений (polling)
             botClient.StartReceiving(
-                updateHandler: HandleUpdateAsync,
-                errorHandler: HandleErrorAsync,
+                updateHandler: handler,
                 receiverOptions: receiverOptions,
                 cancellationToken: cts.Token
             );
@@ -42,60 +44,80 @@ namespace tiktoktg
 
             cts.Cancel();
         }
+    }
 
-        static async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
+    // Реализуем IUpdateHandler
+    class UpdateHandler : IUpdateHandler
+    {
+        private static HttpClient httpClient = new HttpClient();
+
+        public async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
         {
-            if (update.Message is not { } message || message.Text is not { } text)
-                return;
-
-            long chatId = message.Chat.Id;
-
-            if (text.StartsWith("/start"))
+            try
             {
-                await botClient.SendTextMessageAsync(
-                    chatId,
-                    "Привет! Отправь мне ссылку на видео из TikTok, и я попробую его скачать.",
-                    cancellationToken: cancellationToken
-                );
-            }
-            else if (text.Contains("tiktok.com"))
-            {
-                await botClient.SendTextMessageAsync(
-                    chatId,
-                    "Обрабатываю ссылку... Подождите немного.",
-                    cancellationToken: cancellationToken
-                );
+                if (update.Message is not { } message || message.Text is not { } text)
+                    return;
 
-                string videoUrl = await GetTikTokVideoUrl(text);
-                if (!string.IsNullOrEmpty(videoUrl))
+                long chatId = message.Chat.Id;
+
+                if (text.StartsWith("/start"))
                 {
-                    await botClient.SendVideoAsync(
-                        chatId: chatId,
-                        video: InputFile.FromUri(videoUrl),
-                        caption: "Вот ваше видео 🎥",
+                    await botClient.SendTextMessageAsync(
+                        chatId,
+                        "Привет! Отправь мне ссылку на видео из TikTok, и я попробую его скачать.",
                         cancellationToken: cancellationToken
                     );
+                }
+                else if (text.Contains("tiktok.com"))
+                {
+                    await botClient.SendTextMessageAsync(
+                        chatId,
+                        "Обрабатываю ссылку... Подождите немного.",
+                        cancellationToken: cancellationToken
+                    );
+
+                    string videoUrl = await GetTikTokVideoUrl(text);
+                    if (!string.IsNullOrEmpty(videoUrl))
+                    {
+                        await botClient.SendVideoAsync(
+                            chatId: chatId,
+                            video: new InputOnlineFile(videoUrl), // Используем InputOnlineFile
+                            caption: "Вот ваше видео 🎥",
+                            cancellationToken: cancellationToken
+                        );
+                    }
+                    else
+                    {
+                        await botClient.SendTextMessageAsync(
+                            chatId,
+                            "Не удалось загрузить видео. Попробуйте другую ссылку.",
+                            cancellationToken: cancellationToken
+                        );
+                    }
                 }
                 else
                 {
                     await botClient.SendTextMessageAsync(
                         chatId,
-                        "Не удалось загрузить видео. Попробуйте другую ссылку.",
+                        "Пожалуйста, отправьте ссылку на TikTok.",
                         cancellationToken: cancellationToken
                     );
                 }
             }
-            else
+            catch (Exception ex)
             {
-                await botClient.SendTextMessageAsync(
-                    chatId,
-                    "Пожалуйста, отправьте ссылку на TikTok.",
-                    cancellationToken: cancellationToken
-                );
+                Console.WriteLine($"Ошибка при обработке обновления: {ex.Message}");
             }
         }
 
-        static async Task<string> GetTikTokVideoUrl(string tiktokUrl)
+        public Task HandleErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
+        {
+            Console.WriteLine($"Ошибка: {exception.Message}");
+            return Task.CompletedTask;
+        }
+
+        // Метод для получения URL видео
+        private async Task<string> GetTikTokVideoUrl(string tiktokUrl)
         {
             try
             {
@@ -112,12 +134,18 @@ namespace tiktoktg
             }
         }
 
-        static Task HandleErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
+        // Реализация обязательного метода для обработки ошибок в процессе polling
+        public Task HandlePollingErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
         {
-            Console.WriteLine($"Ошибка: {exception.Message}");
+            Console.WriteLine($"Ошибка при polling: {exception.Message}");
             return Task.CompletedTask;
         }
     }
 }
+
+
+
+
+
 
 

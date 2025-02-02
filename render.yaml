@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: tiktoktg-bot
+    runtime: dotnet
+    region: oregon
+    plan: free
+    buildCommand: dotnet publish -c Release -o out
+    startCommand: dotnet out/tiktoktg.dll
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
